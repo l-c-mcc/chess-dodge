@@ -11,6 +11,8 @@ const TILE_DIS: f32 = TILE_GAP + SQUARE_LEN;
 const FROM_ORIGIN: f32 = TILE_DIS / 2.;
 const PLAYER_SIDE: Side = Side::Black;
 const PLAYER_MOVE_SPEED: f32 = 0.15;
+const TILE_MIN: f32 = -4. * TILE_DIS;
+const TILE_MAX: f32 = -1. * TILE_MIN;
 
 fn main() {
     App::new()
@@ -77,20 +79,12 @@ impl Default for Board {
 
 impl Board {
     fn coord_to_vec(x: usize, y: usize) -> Vec3 {
-        let xy_screen;
-        match (x > 3, y > 3) {
-            (true, true) => xy_screen = (FROM_ORIGIN, -FROM_ORIGIN),
-            (true, false) => xy_screen = (FROM_ORIGIN, FROM_ORIGIN),
-            (false, true) => xy_screen = (-FROM_ORIGIN, -FROM_ORIGIN),
-            (false, false) => xy_screen = (-FROM_ORIGIN, FROM_ORIGIN),
-        }
-        let x_board = x as f32 - 3.;
-        let y_board = y as f32 - 3.;
-        Vec3::new(
-            xy_screen.0 + (x_board * TILE_DIS),
-            xy_screen.1 + (y_board * TILE_DIS),
-            1.0,
-        )
+        let x_board = x as f32;
+        let y_board = y as f32;
+        // (3, 3) board pos below
+        let x_coord = -FROM_ORIGIN + (x_board - 3.) * TILE_DIS;
+        let y_coord = FROM_ORIGIN + (y_board - 3.) * TILE_DIS;
+        Vec3::new(x_coord, y_coord, 1.)
     }
 
     fn place_piece(&mut self, x: usize, y: usize, entity: TileType) -> bool {
@@ -162,7 +156,7 @@ impl Board {
         match dir {
             Direction::Up => y -= 1,
             Direction::Down => y += 1,
-            _ => (),
+            _ => panic!("undefined movement"),
         }
         if in_bounds(x) && in_bounds(y) {
             Some((x as usize, y as usize))
@@ -216,6 +210,9 @@ enum Direction {
 }
 
 fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let start_x = 3;
+    let start_y = 3;
+    let start_vec = Board::coord_to_vec(start_x, start_y);
     commands.spawn(Camera2dBundle::default());
 
     let board_sprite = asset_server.load("chessBoards/chessBoard.png");
@@ -231,7 +228,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 texture: piece_sprites.get(Piece::Rook, PLAYER_SIDE),
                 transform: Transform {
                     scale: Vec3::new(SCALE, SCALE, 1.),
-                    translation: Vec3::new(FROM_ORIGIN, -FROM_ORIGIN, 1.),
+                    translation: start_vec,
                     ..default()
                 },
                 ..default()
@@ -243,12 +240,12 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         ))
         .id();
     let mut board = Board::default();
-    board.place_piece(4, 4, TileType::Player(player_id));
+    board.place_piece(start_x, start_y, TileType::Player(player_id));
     commands.spawn((
         SpriteBundle {
             texture: board_sprite,
             transform: Transform {
-                scale: Vec3::new(SCALE, SCALE, 1.),
+                scale: Vec3::new(SCALE, SCALE, 0.),
                 ..default()
             },
             ..default()
@@ -273,9 +270,11 @@ fn player_input(
         use KeyCode::{KeyA, KeyD, KeyS, KeyW};
         let kp = |kc| keyboard_input.pressed(kc);
         let mut mov = None;
-        match (kp(KeyW), kp(KeyS)) {
-            (true, false) => mov = Some(Direction::Up),
-            (false, true) => mov = Some(Direction::Down),
+        match (kp(KeyW), kp(KeyS), kp(KeyA), kp(KeyD)) {
+            (true, false, false, false) => mov = Some(Direction::Up),
+            (false, true, false, false) => mov = Some(Direction::Down),
+            (false, false, true, false) => mov = Some(Direction::Left),
+            (false, false, false, true) => mov = Some(Direction::Right),
             _ => (),
         }
         if let Some(dir) = mov {
