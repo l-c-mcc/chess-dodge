@@ -10,7 +10,7 @@ const TILE_GAP: f32 = 2. * SCALE;
 const TILE_DIS: f32 = TILE_GAP + SQUARE_LEN;
 const FROM_ORIGIN: f32 = TILE_DIS / 2.;
 const PLAYER_SIDE: Side = Side::Black;
-const PLAYER_MOVE_SPEED: f32 = 0.15;
+const PLAYER_MOVE_SPEED: f32 = 0.12;
 const TILE_MIN: f32 = -4. * TILE_DIS;
 const TILE_MAX: f32 = -1. * TILE_MIN;
 
@@ -83,7 +83,7 @@ impl Board {
         let y_board = y as f32;
         // (3, 3) board pos below
         let x_coord = -FROM_ORIGIN + (x_board - 3.) * TILE_DIS;
-        let y_coord = FROM_ORIGIN + (y_board - 3.) * TILE_DIS;
+        let y_coord = FROM_ORIGIN - (y_board - 3.) * TILE_DIS;
         Vec3::new(x_coord, y_coord, 1.)
     }
 
@@ -126,6 +126,7 @@ impl Board {
             (None, TileType::Player(_)) => MoveResult::NoMov,
             (None, TileType::Opponent(_)) => MoveResult::Delete,
             (Some((x, y)), _) => {
+                println!{"[{x}, {y}]"};
                 self.board[y][x] = req.id;
                 self.board[orig_y][orig_x] = TileType::Empty; // will be refreshed later
                 MoveResult::NewLoc(Self::coord_to_vec(x, y))
@@ -156,6 +157,8 @@ impl Board {
         match dir {
             Direction::Up => y -= 1,
             Direction::Down => y += 1,
+            Direction::Left => x -= 1,
+            Direction::Right => x += 1,
             _ => panic!("undefined movement"),
         }
         if in_bounds(x) && in_bounds(y) {
@@ -254,11 +257,6 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-fn move_board(mut query: Query<&mut Transform, With<Board>>) {
-    let mut board_transform = query.single_mut();
-    //board_transform.translation.x += 1.0;
-}
-
 fn player_input(
     time: Res<Time>,
     mut query: Query<(&mut Player, Entity)>,
@@ -306,7 +304,6 @@ fn move_pieces(mut query: Query<(Entity, &mut Transform, Option<&Player>), With<
         if player.is_some() {
             for mov in move_reader.read() {
                 if let MoveResult::NewLoc(vec) = mov.mov {
-                    println!("{vec}");
                     transform.translation = vec;
                 }
             }
