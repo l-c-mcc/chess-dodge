@@ -41,7 +41,7 @@ struct PieceSprites {
 }
 
 impl PieceSprites {
-    fn get(self: &Self, piece: Piece, side: Side) -> Handle<Image> {
+    fn get(&self, piece: Piece, side: Side) -> Handle<Image> {
         self.map.get(&(piece, side)).unwrap().clone()
     }
 }
@@ -126,31 +126,23 @@ impl Board {
             (None, TileType::Player(_)) => MoveResult::NoMov,
             (None, TileType::Opponent(_)) => MoveResult::Delete,
             (Some((x, y)), _) => {
-                println!{"[{x}, {y}]"};
                 self.board[y][x] = req.id;
                 self.board[orig_y][orig_x] = TileType::Empty; // will be refreshed later
                 MoveResult::NewLoc(Self::coord_to_vec(x, y))
             }
-            (_, _) => panic!("Should not be here")
+            (_, _) => panic!("Should not be here"),
         };
         let id = match req.id {
             TileType::Player(x) => x,
             TileType::Opponent(x) => x,
             _ => panic!("Trying to find entity in empty tile"),
         };
-        Some(Move {
-            id,
-            mov
-        })
+        Some(Move { id, mov })
     }
 
     fn new_xy(dir: Direction, xy: (usize, usize)) -> Option<(usize, usize)> {
         fn in_bounds(val: i32) -> bool {
-            if val < 0 || val >= N_TILES as i32 {
-                false
-            } else {
-                true
-            }
+            !(val < 0 || val >= N_TILES as i32)
         }
         let mut x = xy.0 as i32;
         let mut y = xy.1 as i32;
@@ -237,7 +229,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ..default()
             },
             Player {
-                timer: Timer::from_seconds(PLAYER_MOVE_SPEED, TimerMode::Repeating)
+                timer: Timer::from_seconds(PLAYER_MOVE_SPEED, TimerMode::Repeating),
             },
             Piece::Rook,
         ))
@@ -297,10 +289,12 @@ fn update_board(
     }
 }
 
-fn move_pieces(mut query: Query<(Entity, &mut Transform, Option<&Player>), With<Piece>>,
-    mut move_reader: EventReader<Move>) {
+fn move_pieces(
+    mut query: Query<(Entity, &mut Transform, Option<&Player>), With<Piece>>,
+    mut move_reader: EventReader<Move>,
+) {
     //let hash_map: HashMap<Entity, (&Transform, Option<&Player>) = HashMap::new();
-    for (entity, mut transform, player) in query.iter_mut() {
+    for (_entity, mut transform, player) in query.iter_mut() {
         if player.is_some() {
             for mov in move_reader.read() {
                 if let MoveResult::NewLoc(vec) = mov.mov {
