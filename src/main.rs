@@ -102,6 +102,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
     ));
     commands.insert_resource(piece_sprites);
+    commands.insert_resource(GameOver(false));
 }
 
 type PieceSide = (Piece, Side);
@@ -110,6 +111,9 @@ type PieceSide = (Piece, Side);
 struct PieceSprites {
     map: HashMap<PieceSide, Handle<Image>>,
 }
+
+#[derive(Resource)]
+struct GameOver(bool);
 
 impl PieceSprites {
     fn get(&self, piece: Piece, side: Side) -> Handle<Image> {
@@ -208,6 +212,7 @@ enum Direction {
     Down,
     DownLeft,
     DownRight,
+    None,
 }
 
 impl OpponentPiece {
@@ -284,23 +289,35 @@ impl Board {
                     } else {
                         row[x] = TileType::Opponent(id);
                     }
-                    Some( Move { id, mov: MoveResult::NewLoc(Self::coord_to_vec(x, y))})
-                },
+                    Some(Move {
+                        id,
+                        mov: MoveResult::NewLoc(Self::coord_to_vec(x, y)),
+                    })
+                }
                 TileType::Player(player_id) => {
                     row[x] = TileType::Opponent(id);
-                    Some(Move {id: player_id, mov: MoveResult::Delete})
-                },
-                TileType::Opponent(opp_id) => Some(Move {id: opp_id, mov: MoveResult::Delete}),
+                    Some(Move {
+                        id: player_id,
+                        mov: MoveResult::Delete,
+                    })
+                }
+                TileType::Opponent(opp_id) => Some(Move {
+                    id: opp_id,
+                    mov: MoveResult::Delete,
+                }),
             }
         };
         match (xy, req.id) {
             (None, TileType::Player(id)) => {
                 new_board.board[orig_y][orig_x] = TileType::Player(id);
                 None
-            },
-            (None, TileType::Opponent(id)) => Some( Move {id, mov: MoveResult::Delete} ),
+            }
+            (None, TileType::Opponent(id)) => Some(Move {
+                id,
+                mov: MoveResult::Delete,
+            }),
             (Some((x, y)), TileType::Player(id)) => collision_check(x, y, id, true),
-            (Some((x,y)), TileType::Opponent(id)) => collision_check(x, y, id, false),
+            (Some((x, y)), TileType::Opponent(id)) => collision_check(x, y, id, false),
             (_, _) => panic!("Should not be here"),
         }
     }
@@ -316,6 +333,7 @@ impl Board {
             Direction::Down => y += 1,
             Direction::Left => x -= 1,
             Direction::Right => x += 1,
+            Direction::None => (),
             _ => panic!("undefined movement"),
         }
         if in_bounds(x) && in_bounds(y) {
@@ -332,6 +350,7 @@ fn player_input(
     mut move_req_writer: EventWriter<MoveReq>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
+    let mut update_sent = false;
     let (mut player, entity) = query.single_mut();
     // to-do: unlock ability to move every move_interval
     if player.timer.tick(time.delta()).just_finished() {
@@ -350,7 +369,14 @@ fn player_input(
                 id: TileType::Player(entity),
                 mov: dir,
             });
+            update_sent = true;
         }
+    }
+    if !update_sent {
+        move_req_writer.send(MoveReq {
+            id: TileType::Player(entity),
+            mov: Direction::None,
+        });
     }
 }
 
@@ -370,63 +396,75 @@ fn opp_move(
                 }
                 _ => panic!("Spawned unimplemented piece"),
             }
+        } else {
+            move_req_writer.send(MoveReq {
+                id: TileType::Opponent(entity),
+                mov: Direction::None,
+            });
         }
     }
 }
 
 fn update_board(
     mut query: Query<&mut Board>,
+    game_over: Res<GameOver>,
     mut move_req_reader: EventReader<MoveReq>,
     mut move_writer: EventWriter<Move>,
 ) {
-    let mut new_board = Board::default();
-    let mut old_board = query.single_mut();
-    for req in move_req_reader.read() {
-        if let Some(mov) = old_board.mov(req, &mut new_board) {
-            move_writer.send(mov);
+    if !game_over.0 {
+        let mut new_board = Board::default();
+        let mut old_board = query.single_mut();
+        for req in move_req_reader.read() {
+            if let Some(mov) = old_board.mov(req, &mut new_board) {
+                move_writer.send(mov);
+            }
         }
+        old_board.board = new_board.board;
     }
-    old_board.board = new_board.board;
 }
 
 fn spawn_opp_pieces(
     mut query: Query<(&mut Board, &mut Spawner)>,
     piece_sprites: Res<PieceSprites>,
     time: Res<Time>,
+    game_over: Res<GameOver>,
     mut commands: Commands,
 ) {
-    let (mut board, mut spawner) = query.get_single_mut().unwrap();
-    if spawner.timer.tick(time.delta()).just_finished() {
-        let mut rng = nanorand::pcg64::Pcg64::new();
-        let mut spawn_locations = vec![];
-        let top_row = &board.board[0];
-        // todo: player can avoid all danger by living in top row
-        for (elem, tile) in top_row.iter().enumerate().take(N_TILES) {
-            if tile == &TileType::Empty {
-                spawn_locations.push(elem);
+    if !game_over.0 {
+        let (mut board, mut spawner) = query.get_single_mut().unwrap();
+        if spawner.timer.tick(time.delta()).just_finished() {
+            let mut rng = nanorand::pcg64::Pcg64::new();
+            let mut spawn_locations = vec![];
+            let top_row = &board.board[0];
+            // todo: player can avoid all danger by living in top row
+            for (elem, tile) in top_row.iter().enumerate().take(N_TILES) {
+                if tile == &TileType::Empty {
+                    spawn_locations.push(elem);
+                }
             }
+            rng.shuffle(&mut spawn_locations);
+            let target = spawn_locations.pop();
+            if let Some(col) = target {
+                let target_coords = Board::coord_to_vec(col, 0);
+                let new_piece = commands
+                    .spawn(OpponentPiece::new(
+                        (*piece_sprites.map.get(&(Piece::Rook, OPP_SIDE)).unwrap()).clone(),
+                        target_coords,
+                        Piece::Rook,
+                        spawner.cur_duration,
+                    ))
+                    .id();
+                board.board[0][col] = TileType::Opponent(new_piece);
+            }
+            spawner.cur_duration -= SPAWN_DUR_DECR;
+            spawner.timer = Timer::from_seconds(spawner.cur_duration, TimerMode::Once);
         }
-        rng.shuffle(&mut spawn_locations);
-        let target = spawn_locations.pop();
-        if let Some(col) = target {
-            let target_coords = Board::coord_to_vec(col, 0);
-            let new_piece = commands
-                .spawn(OpponentPiece::new(
-                    (*piece_sprites.map.get(&(Piece::Rook, OPP_SIDE)).unwrap()).clone(),
-                    target_coords,
-                    Piece::Rook,
-                    spawner.cur_duration,
-                ))
-                .id();
-            board.board[0][col] = TileType::Opponent(new_piece);
-        }
-        spawner.cur_duration -= SPAWN_DUR_DECR;
-        spawner.timer = Timer::from_seconds(spawner.cur_duration, TimerMode::Once);
     }
 }
 
 fn move_pieces(
     mut query: Query<(Entity, &mut Transform, Option<&Player>), With<Piece>>,
+    mut game_over: ResMut<GameOver>,
     mut move_reader: EventReader<Move>,
     mut delete_writer: EventWriter<ToDelete>,
 ) {
@@ -436,15 +474,20 @@ fn move_pieces(
     }
     for event in move_reader.read() {
         let entity_id = event.id;
-        // there should be only one move per entity per cycle, so this panicking is a sign of something moving more than it should
         let mut entity = hash_map.remove(&entity_id).unwrap();
         // note: maybe I checked for player for a reason?
-        match event.mov {
-            MoveResult::NewLoc(vec) => entity.0.translation = vec,
-            MoveResult::Delete => {
+        match (&event.mov, entity.1) {
+            (MoveResult::NewLoc(vec), _) => entity.0.translation = *vec,
+            (MoveResult::Delete, None) => {
                 delete_writer.send(ToDelete { id: entity_id });
             }
+            (MoveResult::Delete, _) => {
+                // hide the player when the game ends
+                entity.0.translation = Vec3::new(10000., 10000., 0.);
+                game_over.0 = true;
+            }
         }
+        hash_map.insert(entity_id, entity);
     }
 }
 
