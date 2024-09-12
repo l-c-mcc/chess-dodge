@@ -346,26 +346,30 @@ fn spawn_opp_pieces(
 ) {
     let (mut board, mut spawner) = query.get_single_mut().unwrap();
     if spawner.timer.tick(time.delta()).just_finished() {
+        spawner.cur_duration -= SPAWN_DUR_DECR;
+        spawner.timer = Timer::from_seconds(spawner.cur_duration, TimerMode::Once);
         let mut rng = nanorand::pcg64::Pcg64::new();
         let mut spawn_locations = vec![];
         let top_row = &board.board[0];
-        // to-do: player can avoid all danger by living in top row
+        // todo: player can avoid all danger by living in top row
         for (elem, tile) in top_row.iter().enumerate().take(N_TILES) {
             if tile == &TileType::Empty {
                 spawn_locations.push(elem);
             }
         }
         rng.shuffle(&mut spawn_locations);
-        let target = spawn_locations.pop().unwrap();
-        let target_coords = Board::coord_to_vec(target, 0);
-        let new_piece = commands
-            .spawn(OpponentPiece::new(
-                (*piece_sprites.map.get(&(Piece::Pawn, OPP_SIDE)).unwrap()).clone(),
-                target_coords,
-                Piece::Pawn,
-            ))
-            .id();
-        board.board[0][target] = TileType::Opponent(new_piece);
+        let target = spawn_locations.pop();
+        if let Some(col) = target {
+            let target_coords = Board::coord_to_vec(col, 0);
+            let new_piece = commands
+                .spawn(OpponentPiece::new(
+                    (*piece_sprites.map.get(&(Piece::Pawn, OPP_SIDE)).unwrap()).clone(),
+                    target_coords,
+                    Piece::Pawn,
+                ))
+                .id();
+            board.board[0][col] = TileType::Opponent(new_piece);
+        }
     }
 }
 
