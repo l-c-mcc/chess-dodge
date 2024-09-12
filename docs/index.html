@@ -6,7 +6,7 @@
     import init from './chess-dodge.js'
 
     init().catch((error) => {
-      if (!error.message.startsWith("Game running")) {
+      if (!error.message.startsWith("Using exceptions for control flow")) {
         throw error;
       }
     });
