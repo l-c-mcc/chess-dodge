@@ -65,6 +65,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let piece_sprites = [
         (Piece::Rook, Side::Black, "chessPieces/rookBlack.png"),
         (Piece::Rook, Side::White, "chessPieces/rookWhite.png"),
+        (Piece::Bishop, Side::White, "chessPieces/bishopWhite.png")
     ];
     for sprite in piece_sprites {
         sprite_map.insert((sprite.0, sprite.1), asset_server.load(sprite.2));
@@ -347,6 +348,14 @@ impl Board {
             Direction::Down => y += 1,
             Direction::Left => x -= 1,
             Direction::Right => x += 1,
+            Direction::DownLeft => {
+                x -= 1;
+                y += 1;
+            },
+            Direction::DownRight => {
+                x += 1;
+                y += 1;
+            },
             Direction::None => (),
             _ => panic!("undefined movement"),
         }
@@ -410,6 +419,16 @@ fn opp_move(
                     move_req_writer.send(MoveReq {
                         id: TileType::Opponent(entity),
                         mov: Direction::Down,
+                    });
+                }
+                Piece::Bishop => {
+                    let mut rng = nanorand::pcg64::Pcg64::new();
+                    let mut options = vec![Direction::DownLeft, Direction::DownRight];
+                    rng.shuffle(&mut options);
+                    let dir = options.pop().unwrap();
+                    move_req_writer.send( MoveReq {
+                        id: TileType::Opponent(entity),
+                        mov: dir,
                     });
                 }
                 _ => panic!("Spawned unimplemented piece"),
@@ -478,11 +497,14 @@ fn spawn_opp_pieces(
                 }
                 rng.shuffle(&mut possible_speeds);
                 let speed = possible_speeds.pop().unwrap();
+                let mut possible_pieces = vec![Piece::Rook, Piece::Bishop];
+                rng.shuffle(&mut possible_pieces);
+                let piece = possible_pieces.pop().unwrap();
                 let new_piece = commands
                     .spawn(OpponentPiece::new(
-                        (*piece_sprites.map.get(&(Piece::Rook, OPP_SIDE)).unwrap()).clone(),
+                        (*piece_sprites.map.get(&(piece, OPP_SIDE)).unwrap()).clone(),
                         target_coords,
-                        Piece::Rook,
+                        piece,
                         speed,
                     ))
                     .id();
