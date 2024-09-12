@@ -440,6 +440,7 @@ fn spawn_opp_pieces(
     time: Res<Time>,
     game_over: Res<GameOver>,
     mut commands: Commands,
+    mut move_writer: EventWriter<Move>,
 ) {
     if !game_over.0 {
         let (mut board, mut spawner) = query.get_single_mut().unwrap();
@@ -447,10 +448,16 @@ fn spawn_opp_pieces(
             let mut rng = nanorand::pcg64::Pcg64::new();
             let mut spawn_locations = vec![];
             let top_row = &board.board[0];
+            let mut is_player = None;
             // todo: player can avoid all danger by living in top row
-            for (elem, tile) in top_row.iter().enumerate().take(N_TILES - 1) {
-                if tile == &TileType::Empty {
-                    spawn_locations.push(elem);
+            for (elem, tile) in top_row.iter().enumerate().take(N_TILES) {
+                match *tile {
+                    TileType::Opponent(_) => (),
+                    TileType::Player(x) => {
+                        is_player = Some((elem, x));
+                        spawn_locations.push(elem);
+                    }
+                    _ => spawn_locations.push(elem),
                 }
             }
             rng.shuffle(&mut spawn_locations);
@@ -466,6 +473,14 @@ fn spawn_opp_pieces(
                     ))
                     .id();
                 board.board[0][col] = TileType::Opponent(new_piece);
+                if let Some((player_col, player_id)) = is_player {
+                    if player_col == col {
+                        move_writer.send(Move {
+                            id: player_id,
+                            mov: MoveResult::Delete,
+                        });
+                    }
+                }
             }
             if spawner.cur_duration > MIN_SPAWN_DUR {
                 spawner.cur_duration -= SPAWN_DUR_DECR;
