@@ -448,7 +448,7 @@ fn spawn_opp_pieces(
             let mut spawn_locations = vec![];
             let top_row = &board.board[0];
             // todo: player can avoid all danger by living in top row
-            for (elem, tile) in top_row.iter().enumerate().take(N_TILES - 1) {
+            for (elem, tile) in top_row.iter().enumerate().take(N_TILES) {
                 if tile == &TileType::Empty {
                     spawn_locations.push(elem);
                 }
