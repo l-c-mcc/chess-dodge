@@ -1,24 +1,32 @@
 #![allow(dead_code)]
 
 use bevy::prelude::*;
+use nanorand::Rng;
 use std::collections::HashMap;
 
+const SCREEN_LEN: f32 = 300. * SCALE;
 const N_TILES: usize = 8;
-const SCALE: f32 = 2.;
+const SCALE: f32 = 3.;
 const SQUARE_LEN: f32 = 32. * SCALE;
 const TILE_GAP: f32 = 2. * SCALE;
 const TILE_DIS: f32 = TILE_GAP + SQUARE_LEN;
 const FROM_ORIGIN: f32 = TILE_DIS / 2.;
-const PLAYER_SIDE: Side = Side::Black;
-const PLAYER_MOVE_SPEED: f32 = 0.12;
+const PLAYER_MOVE_SPEED: f32 = 0.13;
 const TILE_MIN: f32 = -4. * TILE_DIS;
 const TILE_MAX: f32 = -1. * TILE_MIN;
+
+const PLAYER_SIDE: Side = Side::Black;
+const OPP_SIDE: Side = Side::White;
+
+const MAX_SPAWN_DUR: f32 = 1.0;
+const MIN_SPAWN_DUR: f32 = 0.05;
+const SPAWN_DUR_DECR: f32 = 0.01;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                resolution: (600., 600.).into(),
+                resolution: (SCREEN_LEN, SCREEN_LEN).into(),
                 ..default()
             }),
             ..default()
@@ -28,9 +36,62 @@ fn main() {
         .add_systems(Startup, startup)
         .add_systems(
             FixedUpdate,
-            (player_input, update_board, move_pieces).chain(),
+            (player_input, update_board, spawn_opp_pieces, move_pieces).chain(),
         )
         .run();
+}
+
+fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let start_x = 3;
+    let start_y = 3;
+    let start_vec = Board::coord_to_vec(start_x, start_y);
+    commands.spawn(Camera2dBundle::default());
+
+    let board_sprite = asset_server.load("chessBoards/chessBoard.png");
+    let mut sprite_map: HashMap<PieceSide, Handle<Image>> = HashMap::new();
+    let piece_sprites = [
+        (Piece::Rook, Side::Black, "chessPieces/rookBlack.png"),
+        (Piece::Pawn, Side::White, "chessPieces/pawnWhite.png"),
+    ];
+    for sprite in piece_sprites {
+        sprite_map.insert((sprite.0, sprite.1), asset_server.load(sprite.2));
+    }
+    let piece_sprites = PieceSprites { map: sprite_map };
+    let player_id = commands
+        .spawn((
+            SpriteBundle {
+                texture: piece_sprites.get(Piece::Rook, PLAYER_SIDE),
+                transform: Transform {
+                    scale: Vec3::new(SCALE, SCALE, 1.),
+                    translation: start_vec,
+                    ..default()
+                },
+                ..default()
+            },
+            Player {
+                timer: Timer::from_seconds(PLAYER_MOVE_SPEED, TimerMode::Repeating),
+            },
+            Piece::Rook,
+        ))
+        .id();
+    let mut board = Board::default();
+    board.place_piece(start_x, start_y, TileType::Player(player_id));
+    commands.spawn((
+        SpriteBundle {
+            texture: board_sprite,
+            transform: Transform {
+                scale: Vec3::new(SCALE, SCALE, 0.),
+                ..default()
+            },
+            ..default()
+        },
+        board,
+        Spawner {
+            timer: Timer::from_seconds(MAX_SPAWN_DUR, TimerMode::Once),
+            cur_duration: MAX_SPAWN_DUR,
+        },
+    ));
+    commands.insert_resource(piece_sprites);
 }
 
 type PieceSide = (Piece, Side);
@@ -69,6 +130,12 @@ struct Board {
     board: [[TileType; N_TILES]; N_TILES],
 }
 
+#[derive(Component)]
+struct Spawner {
+    timer: Timer,
+    cur_duration: f32,
+}
+
 impl Default for Board {
     fn default() -> Self {
         Board {
@@ -77,11 +144,80 @@ impl Default for Board {
     }
 }
 
+#[derive(Bundle)]
+struct OpponentPiece {
+    sprite: SpriteBundle,
+    opp: Opponent,
+    piece: Piece,
+}
+
+#[derive(Component)]
+struct Player {
+    timer: Timer,
+}
+
+#[derive(Component)]
+struct Opponent;
+
+#[derive(Hash, PartialEq, Eq, Clone, Copy, Component)]
+enum Piece {
+    Rook,
+    Bishop,
+    Knight,
+    Pawn,
+    Queen,
+    King,
+}
+
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+enum Side {
+    White,
+    Black,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TileType {
+    Empty,
+    Player(Entity),
+    Opponent(Entity),
+}
+
+#[derive(Clone, Copy)]
+enum Direction {
+    Up,
+    UpLeft,
+    UpRight,
+    Left,
+    Right,
+    Down,
+    DownLeft,
+    DownRight,
+}
+
+
+impl OpponentPiece {
+    fn new(texture: Handle<Image>, coords: Vec3, piece: Piece) -> OpponentPiece {
+        OpponentPiece {
+            sprite: SpriteBundle {
+                texture,
+                transform: Transform {
+                    translation: coords,
+                    scale: Vec3::new(SCALE, SCALE, 1.0),
+                    ..default()
+                },
+                ..default()
+            },
+            opp: Opponent,
+            piece,
+        }
+    }
+}
+
 impl Board {
     fn coord_to_vec(x: usize, y: usize) -> Vec3 {
         let x_board = x as f32;
         let y_board = y as f32;
-        // (3, 3) board pos below
+        // treat (3,3) as origin
         let x_coord = -FROM_ORIGIN + (x_board - 3.) * TILE_DIS;
         let y_coord = FROM_ORIGIN - (y_board - 3.) * TILE_DIS;
         Vec3::new(x_coord, y_coord, 1.)
@@ -97,6 +233,7 @@ impl Board {
     }
 
     // this seems inefficient but worse case scenario is 64 * 64 compares per update?
+    // todo: add collision detection
     fn mov(&mut self, req: &MoveReq) -> Option<Move> {
         if req.id == TileType::Empty {
             return None;
@@ -161,94 +298,6 @@ impl Board {
     }
 }
 
-#[derive(Component)]
-struct Player {
-    timer: Timer,
-}
-
-#[derive(Component)]
-struct Opponent;
-
-#[derive(Hash, PartialEq, Eq, Clone, Copy, Component)]
-enum Piece {
-    Rook,
-    Bishop,
-    Knight,
-    Pawn,
-    Queen,
-    King,
-}
-
-#[derive(Hash, PartialEq, Eq, Clone, Copy)]
-enum Side {
-    White,
-    Black,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum TileType {
-    Empty,
-    Player(Entity),
-    Opponent(Entity),
-}
-
-#[derive(Clone, Copy)]
-enum Direction {
-    Up,
-    UpLeft,
-    UpRight,
-    Left,
-    Right,
-    Down,
-    DownLeft,
-    DownRight,
-}
-
-fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let start_x = 3;
-    let start_y = 3;
-    let start_vec = Board::coord_to_vec(start_x, start_y);
-    commands.spawn(Camera2dBundle::default());
-
-    let board_sprite = asset_server.load("chessBoards/chessBoard.png");
-    let mut sprite_map: HashMap<PieceSide, Handle<Image>> = HashMap::new();
-    sprite_map.insert(
-        (Piece::Rook, Side::Black),
-        asset_server.load("chessPieces/rookBlack.png"),
-    );
-    let piece_sprites = PieceSprites { map: sprite_map };
-    let player_id = commands
-        .spawn((
-            SpriteBundle {
-                texture: piece_sprites.get(Piece::Rook, PLAYER_SIDE),
-                transform: Transform {
-                    scale: Vec3::new(SCALE, SCALE, 1.),
-                    translation: start_vec,
-                    ..default()
-                },
-                ..default()
-            },
-            Player {
-                timer: Timer::from_seconds(PLAYER_MOVE_SPEED, TimerMode::Repeating),
-            },
-            Piece::Rook,
-        ))
-        .id();
-    let mut board = Board::default();
-    board.place_piece(start_x, start_y, TileType::Player(player_id));
-    commands.spawn((
-        SpriteBundle {
-            texture: board_sprite,
-            transform: Transform {
-                scale: Vec3::new(SCALE, SCALE, 0.),
-                ..default()
-            },
-            ..default()
-        },
-        board,
-    ));
-}
-
 fn player_input(
     time: Res<Time>,
     mut query: Query<(&mut Player, Entity)>,
@@ -289,17 +338,52 @@ fn update_board(
     }
 }
 
+fn spawn_opp_pieces(
+    mut query: Query<(&mut Board, &mut Spawner)>,
+    piece_sprites: Res<PieceSprites>,
+    time: Res<Time>,
+    mut commands: Commands,
+) {
+    let (mut board, mut spawner) = query.get_single_mut().unwrap();
+    if spawner.timer.tick(time.delta()).just_finished() {
+        let mut rng = nanorand::pcg64::Pcg64::new();
+        let mut spawn_locations = vec![];
+        let top_row = &board.board[0];
+        // to-do: player can avoid all danger by living in top row
+        for (elem, tile) in top_row.iter().enumerate().take(N_TILES) {
+            if tile == &TileType::Empty {
+                spawn_locations.push(elem);
+            }
+        }
+        rng.shuffle(&mut spawn_locations);
+        let target = spawn_locations.pop().unwrap();
+        let target_coords = Board::coord_to_vec(target, 0);
+        let new_piece = commands
+            .spawn(OpponentPiece::new(
+                (*piece_sprites.map.get(&(Piece::Pawn, OPP_SIDE)).unwrap()).clone(),
+                target_coords,
+                Piece::Pawn,
+            ))
+            .id();
+        board.board[0][target] = TileType::Opponent(new_piece);
+    }
+}
+
 fn move_pieces(
     mut query: Query<(Entity, &mut Transform, Option<&Player>), With<Piece>>,
     mut move_reader: EventReader<Move>,
 ) {
-    //let hash_map: HashMap<Entity, (&Transform, Option<&Player>) = HashMap::new();
-    for (_entity, mut transform, player) in query.iter_mut() {
-        if player.is_some() {
-            for mov in move_reader.read() {
-                if let MoveResult::NewLoc(vec) = mov.mov {
-                    transform.translation = vec;
-                }
+    let mut hash_map: HashMap<Entity, (Mut<'_, Transform>, Option<&Player>)> = HashMap::new();
+    for (entity_id, transform, player) in query.iter_mut() {
+        hash_map.insert(entity_id, (transform, player));
+    }
+    for event in move_reader.read() {
+        let entity_id = event.id;
+        // there should be only one move per entity per cycle, so this panicking is a sign of something moving more than it should
+        let mut entity = hash_map.remove(&entity_id).unwrap();
+        if entity.1.is_some() {
+            if let MoveResult::NewLoc(vec) = event.mov {
+                entity.0.translation = vec;
             }
         }
     }
