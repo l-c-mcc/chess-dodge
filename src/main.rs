@@ -137,7 +137,6 @@ struct ToDelete {
 enum MoveResult {
     NewLoc(Vec3),
     Delete,
-    NoMove,
 }
 
 #[derive(Component)]
@@ -251,14 +250,13 @@ impl Board {
     }
 
     // this seems inefficient but worse case scenario is 64 * 64 compares per update?
-    // todo: add collision detection
-    fn mov(&mut self, req: &MoveReq) -> Option<Move> {
+    fn mov(&mut self, req: &MoveReq, new_board: &mut Board) -> Option<Move> {
         if req.id == TileType::Empty {
             return None;
         }
-        let mut xy = None;
         let mut orig_x = None;
         let mut orig_y = None;
+        let mut xy = None;
         for row in 0..N_TILES {
             for col in 0..N_TILES {
                 let cur = self.board[row][col];
@@ -271,28 +269,40 @@ impl Board {
                 }
             }
         }
-        let orig_x = orig_x.unwrap();
-        let orig_y = orig_y.unwrap();
         if xy.is_none() {
             panic!("Piece supposed to be on board not found")
         }
+        let orig_x = orig_x.unwrap();
+        let orig_y = orig_y.unwrap();
         let xy = Self::new_xy(req.mov, xy.unwrap());
-        let mov = match (xy, req.id) {
-            (None, TileType::Player(_)) => MoveResult::NoMove,
-            (None, TileType::Opponent(_)) => MoveResult::Delete,
-            (Some((x, y)), _) => {
-                self.board[y][x] = req.id;
-                self.board[orig_y][orig_x] = TileType::Empty; // will be refreshed later
-                MoveResult::NewLoc(Self::coord_to_vec(x, y))
+        let mut collision_check = |x, y, id, player| -> Option<Move> {
+            let row: &mut [TileType; 8] = &mut new_board.board[y];
+            match row[x] {
+                TileType::Empty => {
+                    if player {
+                        row[x] = TileType::Player(id);
+                    } else {
+                        row[x] = TileType::Opponent(id);
+                    }
+                    Some( Move { id, mov: MoveResult::NewLoc(Self::coord_to_vec(x, y))})
+                },
+                TileType::Player(player_id) => {
+                    row[x] = TileType::Opponent(id);
+                    Some(Move {id: player_id, mov: MoveResult::Delete})
+                },
+                TileType::Opponent(opp_id) => Some(Move {id: opp_id, mov: MoveResult::Delete}),
             }
+        };
+        match (xy, req.id) {
+            (None, TileType::Player(id)) => {
+                new_board.board[orig_y][orig_x] = TileType::Player(id);
+                None
+            },
+            (None, TileType::Opponent(id)) => Some( Move {id, mov: MoveResult::Delete} ),
+            (Some((x, y)), TileType::Player(id)) => collision_check(x, y, id, true),
+            (Some((x,y)), TileType::Opponent(id)) => collision_check(x, y, id, false),
             (_, _) => panic!("Should not be here"),
-        };
-        let id = match req.id {
-            TileType::Player(x) => x,
-            TileType::Opponent(x) => x,
-            _ => panic!("Trying to find entity in empty tile"),
-        };
-        Some(Move { id, mov })
+        }
     }
 
     fn new_xy(dir: Direction, xy: (usize, usize)) -> Option<(usize, usize)> {
@@ -323,6 +333,7 @@ fn player_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
     let (mut player, entity) = query.single_mut();
+    // to-do: unlock ability to move every move_interval
     if player.timer.tick(time.delta()).just_finished() {
         use KeyCode::{KeyA, KeyD, KeyS, KeyW};
         let kp = |kc| keyboard_input.pressed(kc);
@@ -368,12 +379,14 @@ fn update_board(
     mut move_req_reader: EventReader<MoveReq>,
     mut move_writer: EventWriter<Move>,
 ) {
-    let mut board = query.single_mut();
+    let mut new_board = Board::default();
+    let mut old_board = query.single_mut();
     for req in move_req_reader.read() {
-        if let Some(mov) = board.mov(req) {
+        if let Some(mov) = old_board.mov(req, &mut new_board) {
             move_writer.send(mov);
         }
     }
+    old_board.board = new_board.board;
 }
 
 fn spawn_opp_pieces(
@@ -431,13 +444,7 @@ fn move_pieces(
             MoveResult::Delete => {
                 delete_writer.send(ToDelete { id: entity_id });
             }
-            MoveResult::NoMove => (),
         }
-        /*
-        if let MoveResult::NewLoc(vec) = event.mov {
-            entity.0.translation = vec;
-        }
-        */
     }
 }
 
