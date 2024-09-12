@@ -277,7 +277,10 @@ impl Board {
         if xy.is_none() {
             match req.id {
                 TileType::Player(x) => panic!("Player {:?} supposed to be on board not found", x),
-                TileType::Opponent(x) => panic!("Piece {:?} supposed to be on board not found, {:?}", x, self.board),
+                TileType::Opponent(x) => panic!(
+                    "Piece {:?} supposed to be on board not found, {:?}",
+                    x, self.board
+                ),
                 TileType::Empty => panic!("Searching for empty"),
             }
         }
@@ -306,12 +309,12 @@ impl Board {
                     })
                 }
                 TileType::Opponent(_) => Some(Move {
-                    id: id,
+                    id,
                     mov: MoveResult::Delete,
                 }),
             }
         };
-        let catch = match (xy, req.id) {
+        match (xy, req.id) {
             (None, TileType::Player(id)) => {
                 new_board.board[orig_y][orig_x] = TileType::Player(id);
                 None
@@ -323,8 +326,7 @@ impl Board {
             (Some((x, y)), TileType::Player(id)) => collision_check(x, y, id, true),
             (Some((x, y)), TileType::Opponent(id)) => collision_check(x, y, id, false),
             (_, _) => panic!("Should not be here"),
-        };
-        catch
+        }
     }
 
     fn new_xy(dir: Direction, xy: (usize, usize)) -> Option<(usize, usize)> {
@@ -446,7 +448,7 @@ fn spawn_opp_pieces(
             let mut spawn_locations = vec![];
             let top_row = &board.board[0];
             // todo: player can avoid all danger by living in top row
-            for (elem, tile) in top_row.iter().enumerate().take(N_TILES-1) {
+            for (elem, tile) in top_row.iter().enumerate().take(N_TILES - 1) {
                 if tile == &TileType::Empty {
                     spawn_locations.push(elem);
                 }
