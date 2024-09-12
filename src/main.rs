@@ -12,7 +12,7 @@ const TILE_GAP: f32 = 2. * SCALE;
 const TILE_DIS: f32 = TILE_GAP + SQUARE_LEN;
 const FROM_ORIGIN: f32 = TILE_DIS / 2.;
 
-const PLAYER_MOVE_SPEED: f32 = 0.13;
+const PLAYER_MOVE_SPEED: f32 = 0.2;
 
 const PLAYER_SIDE: Side = Side::Black;
 const OPP_SIDE: Side = Side::White;
@@ -78,6 +78,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
             },
             Player {
                 timer: Timer::from_seconds(PLAYER_MOVE_SPEED, TimerMode::Repeating),
+                can_move: true,
             },
             Piece::Rook,
         ))
@@ -95,7 +96,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
         board,
         Spawner {
-            timer: Timer::from_seconds(MAX_SPAWN_DUR, TimerMode::Once),
+            timer: Timer::from_seconds(0.0, TimerMode::Once),
             cur_duration: MAX_SPAWN_DUR,
         },
     ));
@@ -152,14 +153,6 @@ struct Spawner {
     cur_duration: f32,
 }
 
-impl Default for Board {
-    fn default() -> Self {
-        Board {
-            board: [[TileType::Empty; N_TILES]; N_TILES],
-        }
-    }
-}
-
 #[derive(Bundle)]
 struct OpponentPiece {
     sprite: SpriteBundle,
@@ -170,6 +163,7 @@ struct OpponentPiece {
 #[derive(Component)]
 struct Player {
     timer: Timer,
+    can_move: bool,
 }
 
 #[derive(Component)]
@@ -229,6 +223,14 @@ impl OpponentPiece {
                 timer: Timer::from_seconds(move_time, TimerMode::Repeating),
             },
             piece,
+        }
+    }
+}
+
+impl Default for Board {
+    fn default() -> Self {
+        Board {
+            board: [[TileType::Empty; N_TILES]; N_TILES],
         }
     }
 }
@@ -352,6 +354,9 @@ fn player_input(
     let (mut player, entity) = query.single_mut();
     // to-do: unlock ability to move every move_interval
     if player.timer.tick(time.delta()).just_finished() {
+        player.can_move = true;
+    }
+    if player.can_move {
         use KeyCode::{KeyA, KeyD, KeyS, KeyW};
         let kp = |kc| keyboard_input.pressed(kc);
         let mut mov = None;
@@ -368,6 +373,8 @@ fn player_input(
                 mov: dir,
             });
             update_sent = true;
+            player.can_move = false;
+            player.timer = Timer::from_seconds(PLAYER_MOVE_SPEED, TimerMode::Once);
         }
     }
     if !update_sent {
