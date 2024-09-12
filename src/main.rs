@@ -18,8 +18,13 @@ const PLAYER_SIDE: Side = Side::Black;
 const OPP_SIDE: Side = Side::White;
 
 const MAX_SPAWN_DUR: f32 = 1.0;
-const MIN_SPAWN_DUR: f32 = 0.5;
-const SPAWN_DUR_DECR: f32 = 0.01;
+const MIN_SPAWN_DUR: f32 = 0.3;
+const SPAWN_DUR_DECR: f32 = 0.1;
+
+// min is faster than max
+const MAX_OPP_SPEED: f32 = 0.8;
+const MIN_OPP_SPEED: f32 = 0.4;
+const OPP_SPEED_DECR: f32 = 0.05;
 
 fn main() {
     App::new()
@@ -98,6 +103,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Spawner {
             timer: Timer::from_seconds(0.0, TimerMode::Once),
             cur_duration: MAX_SPAWN_DUR,
+            cur_piece_speed: MAX_OPP_SPEED,
         },
     ));
     commands.insert_resource(piece_sprites);
@@ -151,6 +157,7 @@ struct Board {
 struct Spawner {
     timer: Timer,
     cur_duration: f32,
+    cur_piece_speed: f32,
 }
 
 #[derive(Bundle)]
@@ -463,12 +470,20 @@ fn spawn_opp_pieces(
             let target = spawn_locations.pop();
             if let Some(col) = target {
                 let target_coords = Board::coord_to_vec(col, 0);
+                let cur_speed = spawner.cur_piece_speed;
+                let offsets = vec![0.0, 0.2, 0.4, 0.6];
+                let mut possible_speeds = vec![];
+                for offset in offsets {
+                    possible_speeds.push(cur_speed + offset);
+                }
+                rng.shuffle(&mut possible_speeds);
+                let speed = possible_speeds.pop().unwrap();
                 let new_piece = commands
                     .spawn(OpponentPiece::new(
                         (*piece_sprites.map.get(&(Piece::Rook, OPP_SIDE)).unwrap()).clone(),
                         target_coords,
                         Piece::Rook,
-                        spawner.cur_duration,
+                        speed,
                     ))
                     .id();
                 board.board[0][col] = TileType::Opponent(new_piece);
@@ -483,6 +498,9 @@ fn spawn_opp_pieces(
             }
             if spawner.cur_duration > MIN_SPAWN_DUR {
                 spawner.cur_duration -= SPAWN_DUR_DECR;
+            }
+            if spawner.cur_piece_speed > MIN_OPP_SPEED {
+                spawner.cur_piece_speed -= OPP_SPEED_DECR;
             }
             spawner.timer = Timer::from_seconds(spawner.cur_duration, TimerMode::Once);
         }
