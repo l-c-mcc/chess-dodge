@@ -18,7 +18,7 @@ const PLAYER_SIDE: Side = Side::Black;
 const OPP_SIDE: Side = Side::White;
 
 const MAX_SPAWN_DUR: f32 = 1.0;
-const MIN_SPAWN_DUR: f32 = 0.05;
+const MIN_SPAWN_DUR: f32 = 0.5;
 const SPAWN_DUR_DECR: f32 = 0.01;
 
 fn main() {
@@ -120,7 +120,7 @@ impl PieceSprites {
     }
 }
 
-#[derive(Event)]
+#[derive(Event, Debug)]
 struct MoveReq {
     id: TileType,
     mov: Direction,
@@ -187,14 +187,14 @@ enum Side {
     Black,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TileType {
     Empty,
     Player(Entity),
     Opponent(Entity),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Direction {
     Up,
     UpLeft,
@@ -275,7 +275,11 @@ impl Board {
             }
         }
         if xy.is_none() {
-            panic!("Piece supposed to be on board not found")
+            match req.id {
+                TileType::Player(x) => panic!("Player {:?} supposed to be on board not found", x),
+                TileType::Opponent(x) => panic!("Piece {:?} supposed to be on board not found, {:?}", x, self.board),
+                TileType::Empty => panic!("Searching for empty"),
+            }
         }
         let orig_x = orig_x.unwrap();
         let orig_y = orig_y.unwrap();
@@ -301,13 +305,13 @@ impl Board {
                         mov: MoveResult::Delete,
                     })
                 }
-                TileType::Opponent(opp_id) => Some(Move {
-                    id: opp_id,
+                TileType::Opponent(_) => Some(Move {
+                    id: id,
                     mov: MoveResult::Delete,
                 }),
             }
         };
-        match (xy, req.id) {
+        let catch = match (xy, req.id) {
             (None, TileType::Player(id)) => {
                 new_board.board[orig_y][orig_x] = TileType::Player(id);
                 None
@@ -319,7 +323,8 @@ impl Board {
             (Some((x, y)), TileType::Player(id)) => collision_check(x, y, id, true),
             (Some((x, y)), TileType::Opponent(id)) => collision_check(x, y, id, false),
             (_, _) => panic!("Should not be here"),
-        }
+        };
+        catch
     }
 
     fn new_xy(dir: Direction, xy: (usize, usize)) -> Option<(usize, usize)> {
@@ -352,7 +357,6 @@ fn player_input(
 ) {
     let mut update_sent = false;
     let (mut player, entity) = query.single_mut();
-    // to-do: unlock ability to move every move_interval
     if player.timer.tick(time.delta()).just_finished() {
         player.can_move = true;
     }
@@ -442,7 +446,7 @@ fn spawn_opp_pieces(
             let mut spawn_locations = vec![];
             let top_row = &board.board[0];
             // todo: player can avoid all danger by living in top row
-            for (elem, tile) in top_row.iter().enumerate().take(N_TILES) {
+            for (elem, tile) in top_row.iter().enumerate().take(N_TILES-1) {
                 if tile == &TileType::Empty {
                     spawn_locations.push(elem);
                 }
@@ -482,7 +486,6 @@ fn move_pieces(
     for event in move_reader.read() {
         let entity_id = event.id;
         let mut entity = hash_map.remove(&entity_id).unwrap();
-        // note: maybe I checked for player for a reason?
         match (&event.mov, entity.1) {
             (MoveResult::NewLoc(vec), _) => entity.0.translation = *vec,
             (MoveResult::Delete, None) => {
