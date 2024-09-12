@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 const SCREEN_LEN: f32 = 300. * SCALE;
 const N_TILES: usize = 8;
-const SCALE: f32 = 3.;
+const SCALE: f32 = 2.5;
 const SQUARE_LEN: f32 = 32. * SCALE;
 const TILE_GAP: f32 = 2. * SCALE;
 const TILE_DIS: f32 = TILE_GAP + SQUARE_LEN;
@@ -23,7 +23,7 @@ const SPAWN_DUR_DECR: f32 = 0.1;
 
 // min is faster than max
 const MAX_OPP_SPEED: f32 = 0.8;
-const MIN_OPP_SPEED: f32 = 0.4;
+const MIN_OPP_SPEED: f32 = 0.5;
 const OPP_SPEED_DECR: f32 = 0.05;
 
 fn main() {
