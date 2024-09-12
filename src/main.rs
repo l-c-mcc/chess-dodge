@@ -11,9 +11,10 @@ const SQUARE_LEN: f32 = 32. * SCALE;
 const TILE_GAP: f32 = 2. * SCALE;
 const TILE_DIS: f32 = TILE_GAP + SQUARE_LEN;
 const FROM_ORIGIN: f32 = TILE_DIS / 2.;
-const PLAYER_MOVE_SPEED: f32 = 0.13;
 const TILE_MIN: f32 = -4. * TILE_DIS;
 const TILE_MAX: f32 = -1. * TILE_MIN;
+
+const PLAYER_MOVE_SPEED: f32 = 0.13;
 
 const PLAYER_SIDE: Side = Side::Black;
 const OPP_SIDE: Side = Side::White;
@@ -33,10 +34,19 @@ fn main() {
         }))
         .add_event::<MoveReq>()
         .add_event::<Move>()
+        .add_event::<ToDelete>()
         .add_systems(Startup, startup)
         .add_systems(
             FixedUpdate,
-            (player_input, update_board, spawn_opp_pieces, move_pieces).chain(),
+            (
+                player_input,
+                opp_move,
+                update_board,
+                spawn_opp_pieces,
+                move_pieces,
+                clear_pieces,
+            )
+                .chain(),
         )
         .run();
 }
@@ -51,7 +61,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut sprite_map: HashMap<PieceSide, Handle<Image>> = HashMap::new();
     let piece_sprites = [
         (Piece::Rook, Side::Black, "chessPieces/rookBlack.png"),
-        (Piece::Pawn, Side::White, "chessPieces/pawnWhite.png"),
+        (Piece::Rook, Side::White, "chessPieces/rookWhite.png"),
     ];
     for sprite in piece_sprites {
         sprite_map.insert((sprite.0, sprite.1), asset_server.load(sprite.2));
@@ -119,10 +129,15 @@ struct Move {
     mov: MoveResult,
 }
 
+#[derive(Event, Deref)]
+struct ToDelete {
+    id: Entity,
+}
+
 enum MoveResult {
     NewLoc(Vec3),
     Delete,
-    NoMov,
+    NoMove,
 }
 
 #[derive(Component)]
@@ -157,7 +172,9 @@ struct Player {
 }
 
 #[derive(Component)]
-struct Opponent;
+struct Opponent {
+    timer: Timer,
+}
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Component)]
 enum Piece {
@@ -194,9 +211,8 @@ enum Direction {
     DownRight,
 }
 
-
 impl OpponentPiece {
-    fn new(texture: Handle<Image>, coords: Vec3, piece: Piece) -> OpponentPiece {
+    fn new(texture: Handle<Image>, coords: Vec3, piece: Piece, move_time: f32) -> OpponentPiece {
         OpponentPiece {
             sprite: SpriteBundle {
                 texture,
@@ -207,7 +223,9 @@ impl OpponentPiece {
                 },
                 ..default()
             },
-            opp: Opponent,
+            opp: Opponent {
+                timer: Timer::from_seconds(move_time, TimerMode::Repeating),
+            },
             piece,
         }
     }
@@ -260,7 +278,7 @@ impl Board {
         }
         let xy = Self::new_xy(req.mov, xy.unwrap());
         let mov = match (xy, req.id) {
-            (None, TileType::Player(_)) => MoveResult::NoMov,
+            (None, TileType::Player(_)) => MoveResult::NoMove,
             (None, TileType::Opponent(_)) => MoveResult::Delete,
             (Some((x, y)), _) => {
                 self.board[y][x] = req.id;
@@ -325,6 +343,26 @@ fn player_input(
     }
 }
 
+fn opp_move(
+    mut query: Query<(Entity, &mut Opponent, &Piece)>,
+    mut move_req_writer: EventWriter<MoveReq>,
+    time: Res<Time>,
+) {
+    for (entity, mut opponent, piece) in query.iter_mut() {
+        if opponent.timer.tick(time.delta()).just_finished() {
+            match piece {
+                Piece::Rook => {
+                    move_req_writer.send(MoveReq {
+                        id: TileType::Opponent(entity),
+                        mov: Direction::Down,
+                    });
+                }
+                _ => panic!("Spawned unimplemented piece"),
+            }
+        }
+    }
+}
+
 fn update_board(
     mut query: Query<&mut Board>,
     mut move_req_reader: EventReader<MoveReq>,
@@ -346,8 +384,6 @@ fn spawn_opp_pieces(
 ) {
     let (mut board, mut spawner) = query.get_single_mut().unwrap();
     if spawner.timer.tick(time.delta()).just_finished() {
-        spawner.cur_duration -= SPAWN_DUR_DECR;
-        spawner.timer = Timer::from_seconds(spawner.cur_duration, TimerMode::Once);
         let mut rng = nanorand::pcg64::Pcg64::new();
         let mut spawn_locations = vec![];
         let top_row = &board.board[0];
@@ -363,19 +399,23 @@ fn spawn_opp_pieces(
             let target_coords = Board::coord_to_vec(col, 0);
             let new_piece = commands
                 .spawn(OpponentPiece::new(
-                    (*piece_sprites.map.get(&(Piece::Pawn, OPP_SIDE)).unwrap()).clone(),
+                    (*piece_sprites.map.get(&(Piece::Rook, OPP_SIDE)).unwrap()).clone(),
                     target_coords,
-                    Piece::Pawn,
+                    Piece::Rook,
+                    spawner.cur_duration,
                 ))
                 .id();
             board.board[0][col] = TileType::Opponent(new_piece);
         }
+        spawner.cur_duration -= SPAWN_DUR_DECR;
+        spawner.timer = Timer::from_seconds(spawner.cur_duration, TimerMode::Once);
     }
 }
 
 fn move_pieces(
     mut query: Query<(Entity, &mut Transform, Option<&Player>), With<Piece>>,
     mut move_reader: EventReader<Move>,
+    mut delete_writer: EventWriter<ToDelete>,
 ) {
     let mut hash_map: HashMap<Entity, (Mut<'_, Transform>, Option<&Player>)> = HashMap::new();
     for (entity_id, transform, player) in query.iter_mut() {
@@ -385,10 +425,25 @@ fn move_pieces(
         let entity_id = event.id;
         // there should be only one move per entity per cycle, so this panicking is a sign of something moving more than it should
         let mut entity = hash_map.remove(&entity_id).unwrap();
-        if entity.1.is_some() {
-            if let MoveResult::NewLoc(vec) = event.mov {
-                entity.0.translation = vec;
+        // note: maybe I checked for player for a reason?
+        match event.mov {
+            MoveResult::NewLoc(vec) => entity.0.translation = vec,
+            MoveResult::Delete => {
+                delete_writer.send(ToDelete { id: entity_id });
             }
+            MoveResult::NoMove => (),
         }
+        /*
+        if let MoveResult::NewLoc(vec) = event.mov {
+            entity.0.translation = vec;
+        }
+        */
+    }
+}
+
+fn clear_pieces(mut commands: Commands, mut delete_reader: EventReader<ToDelete>) {
+    for event in delete_reader.read() {
+        let entity = **event;
+        commands.entity(entity).despawn();
     }
 }
