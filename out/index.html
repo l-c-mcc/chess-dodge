@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+
+<body style="margin: 0px;">
+  <script type="module">
+    import init from './chess-dodge.js'
+
+    init().catch((error) => {
+      if (!error.message.startsWith("Game running")) {
+        throw error;
+      }
+    });
+  </script>
+</body>
+
+</html>
