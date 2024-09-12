@@ -11,8 +11,6 @@ const SQUARE_LEN: f32 = 32. * SCALE;
 const TILE_GAP: f32 = 2. * SCALE;
 const TILE_DIS: f32 = TILE_GAP + SQUARE_LEN;
 const FROM_ORIGIN: f32 = TILE_DIS / 2.;
-const TILE_MIN: f32 = -4. * TILE_DIS;
-const TILE_MAX: f32 = -1. * TILE_MIN;
 
 const PLAYER_MOVE_SPEED: f32 = 0.13;
 
@@ -456,7 +454,9 @@ fn spawn_opp_pieces(
                     .id();
                 board.board[0][col] = TileType::Opponent(new_piece);
             }
-            spawner.cur_duration -= SPAWN_DUR_DECR;
+            if spawner.cur_duration > MIN_SPAWN_DUR {
+                spawner.cur_duration -= SPAWN_DUR_DECR;
+            }
             spawner.timer = Timer::from_seconds(spawner.cur_duration, TimerMode::Once);
         }
     }
