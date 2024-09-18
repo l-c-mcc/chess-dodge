@@ -23,7 +23,7 @@ const SPAWN_DUR_DECR: f32 = 0.1;
 
 // min is faster than max
 const MAX_OPP_SPEED: f32 = 1.2;
-const MIN_OPP_SPEED: f32 = 0.5;
+const MIN_OPP_SPEED: f32 = 0.4;
 const OPP_SPEED_DECR: f32 = 0.05;
 
 fn main() {
@@ -86,6 +86,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
             Player {
                 timer: Timer::from_seconds(PLAYER_MOVE_SPEED, TimerMode::Repeating),
                 can_move: true,
+                piece: Piece::Bishop,
             },
             Piece::Rook,
         ))
@@ -173,6 +174,8 @@ struct OpponentPiece {
 struct Player {
     timer: Timer,
     can_move: bool,
+    // to-do: use enum attached to player
+    piece: Piece,
 }
 
 #[derive(Component)]
@@ -357,8 +360,15 @@ impl Board {
                 x += 1;
                 y += 1;
             }
+            Direction::UpLeft => {
+                x -= 1;
+                y -= 1;
+            }
+            Direction::UpRight => {
+                x += 1;
+                y -= 1;
+            }
             Direction::None => (),
-            _ => panic!("undefined movement"),
         }
         if in_bounds(x) && in_bounds(y) {
             Some((x as usize, y as usize))
@@ -380,16 +390,12 @@ fn player_input(
         player.can_move = true;
     }
     if player.can_move {
-        use KeyCode::{KeyA, KeyD, KeyS, KeyW};
         let kp = |kc| keyboard_input.pressed(kc);
-        let mut mov = None;
-        match (kp(KeyW), kp(KeyS), kp(KeyA), kp(KeyD)) {
-            (true, false, false, false) => mov = Some(Direction::Up),
-            (false, true, false, false) => mov = Some(Direction::Down),
-            (false, false, true, false) => mov = Some(Direction::Left),
-            (false, false, false, true) => mov = Some(Direction::Right),
-            _ => (),
-        }
+        let mov = match player.piece {
+            Piece::Rook => rook_move(kp),
+            Piece::Bishop => bishop_move(kp),
+            _ => panic!("Other pieces not implemented"),
+        };
         if let Some(dir) = mov {
             move_req_writer.send(MoveReq {
                 id: TileType::Player(entity),
@@ -405,6 +411,28 @@ fn player_input(
             id: TileType::Player(entity),
             mov: Direction::None,
         });
+    }
+}
+
+fn rook_move(kp: impl Fn(KeyCode) -> bool) -> Option<Direction> {
+    use KeyCode::{KeyA, KeyD, KeyS, KeyW};
+    match (kp(KeyW), kp(KeyS), kp(KeyA), kp(KeyD)) {
+        (true, false, false, false) => Some(Direction::Up),
+        (false, true, false, false) => Some(Direction::Down),
+        (false, false, true, false) => Some(Direction::Left),
+        (false, false, false, true) => Some(Direction::Right),
+        _ => None,
+    }
+}
+
+fn bishop_move(kp: impl Fn(KeyCode) -> bool) -> Option<Direction> {
+    use KeyCode::{KeyA, KeyD, KeyS, KeyW};
+    match (kp(KeyW), kp(KeyS), kp(KeyA), kp(KeyD)) {
+        (true, false, true, false) => Some(Direction::UpLeft),
+        (true, false, false, true) => Some(Direction::UpRight),
+        (false, true, false, true) => Some(Direction::DownRight),
+        (false, true, true, false) => Some(Direction::DownLeft),
+        _ => None,
     }
 }
 
@@ -500,7 +528,7 @@ fn spawn_opp_pieces(
                 }
                 rng.shuffle(&mut possible_speeds);
                 let speed = possible_speeds.pop().unwrap();
-                let piece_num = rng.generate_range(1..=20);
+                let piece_num = rng.generate_range(1..=17);
                 let piece = if piece_num < 2 {
                     Piece::Queen
                 } else if piece_num < 6 {
