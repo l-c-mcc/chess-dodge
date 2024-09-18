@@ -73,24 +73,9 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     }
     let piece_sprites = PieceSprites { map: sprite_map };
     let player_id = commands
-        .spawn((
-            SpriteBundle {
-                texture: piece_sprites.get(Piece::Rook, PLAYER_SIDE),
-                transform: Transform {
-                    scale: Vec3::new(SCALE, SCALE, 1.),
-                    translation: start_vec,
-                    ..default()
-                },
-                ..default()
-            },
-            Player {
-                timer: Timer::from_seconds(PLAYER_MOVE_SPEED, TimerMode::Repeating),
-                can_move: true,
-                piece: Piece::Bishop,
-            },
-            Piece::Rook,
-        ))
-        .id();
+        .spawn(
+            PlayerPiece::new(piece_sprites.get(Piece::Rook, PLAYER_SIDE), start_vec, Piece::Bishop, PLAYER_MOVE_SPEED)
+        ).id();
     let mut board = Board::default();
     board.place_piece(start_x, start_y, TileType::Player(player_id));
     commands.spawn((
@@ -164,18 +149,20 @@ struct Spawner {
 }
 
 #[derive(Bundle)]
-struct OpponentPiece {
+struct PieceBundle<T: Component> {
     sprite: SpriteBundle,
-    opp: Opponent,
+    opp: T,
     piece: Piece,
 }
 
+type OpponentPiece = PieceBundle<Opponent>;
+type PlayerPiece = PieceBundle<Player>;
+
 #[derive(Component)]
 struct Player {
+    timer_dur: f32,
     timer: Timer,
     can_move: bool,
-    // to-do: use enum attached to player
-    piece: Piece,
 }
 
 #[derive(Component)]
@@ -219,9 +206,32 @@ enum Direction {
     None,
 }
 
-impl OpponentPiece {
-    fn new(texture: Handle<Image>, coords: Vec3, piece: Piece, move_time: f32) -> OpponentPiece {
-        OpponentPiece {
+// to-do: organize
+trait NewPiece {
+    fn new(move_time: f32) -> Self;
+}
+
+impl NewPiece for Opponent {
+    fn new(move_time: f32) -> Self {
+        Self {
+            timer: Timer::from_seconds(move_time, TimerMode::Repeating),
+        }
+    }
+}
+
+impl NewPiece for Player {
+    fn new(move_time: f32) -> Self {
+        Self {
+            timer_dur: move_time,
+            timer: Timer::from_seconds(move_time, TimerMode::Repeating), // to-do: look into
+            can_move: true,
+        }
+    }
+}
+
+impl<T: Component + NewPiece> PieceBundle<T> {
+    fn new(texture: Handle<Image>, coords: Vec3, piece: Piece, move_time: f32) -> Self {
+        Self {
             sprite: SpriteBundle {
                 texture,
                 transform: Transform {
@@ -231,9 +241,7 @@ impl OpponentPiece {
                 },
                 ..default()
             },
-            opp: Opponent {
-                timer: Timer::from_seconds(move_time, TimerMode::Repeating),
-            },
+            opp: T::new(move_time),
             piece,
         }
     }
@@ -380,18 +388,18 @@ impl Board {
 
 fn player_input(
     time: Res<Time>,
-    mut query: Query<(&mut Player, Entity)>,
+    mut query: Query<(&mut Player, Entity, &Piece)>,
     mut move_req_writer: EventWriter<MoveReq>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
     let mut update_sent = false;
-    let (mut player, entity) = query.single_mut();
+    let (mut player, entity, piece) = query.single_mut();
     if player.timer.tick(time.delta()).just_finished() {
         player.can_move = true;
     }
     if player.can_move {
         let kp = |kc| keyboard_input.pressed(kc);
-        let mov = match player.piece {
+        let mov = match piece {
             Piece::Rook => rook_move(kp),
             Piece::Bishop => bishop_move(kp),
             _ => panic!("Other pieces not implemented"),
