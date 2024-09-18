@@ -65,6 +65,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let piece_sprites = [
         (Piece::Rook, Side::Black, "chessPieces/rookBlack.png"),
         (Piece::Bishop, Side::Black, "chessPieces/bishopBlack.png"),
+        (Piece::Knight, Side::Black, "chessPieces/knightBlack.png"),
         (Piece::Rook, Side::White, "chessPieces/rookWhite.png"),
         (Piece::Bishop, Side::White, "chessPieces/bishopWhite.png"),
         (Piece::Queen, Side::White, "chessPieces/queenWhite.png"),
@@ -73,7 +74,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         sprite_map.insert((sprite.0, sprite.1), asset_server.load(sprite.2));
     }
     let piece_sprites = PieceSprites { map: sprite_map };
-    let player_piece = Piece::Bishop;
+    let player_piece = Piece::Knight;
     let player_id = commands
         .spawn(
             PlayerPiece::new(piece_sprites.get(player_piece, PLAYER_SIDE), start_vec, player_piece, PLAYER_MOVE_SPEED)
@@ -205,6 +206,14 @@ enum Direction {
     Down,
     DownLeft,
     DownRight,
+    UpLeftWide,
+    UpLeftNarrow,
+    UpRightNarrow,
+    UpRightWide,
+    DownRightWide,
+    DownRightNarrow,
+    DownLeftNarrow,
+    DownLeftWide,
     None,
 }
 
@@ -378,6 +387,38 @@ impl Board {
                 x += 1;
                 y -= 1;
             }
+            Direction::UpLeftWide => {
+                x -= 2;
+                y -= 1;
+            }
+            Direction::UpLeftNarrow => {
+                x -= 1;
+                y -= 2;
+            }
+            Direction::UpRightNarrow => {
+                x += 1;
+                y -= 2;
+            }
+            Direction::UpRightWide => {
+                x += 2;
+                y -= 1;
+            }
+            Direction::DownRightWide => {
+                x += 2;
+                y += 1;
+            }
+            Direction::DownRightNarrow => {
+                x += 1;
+                y += 2;
+            }
+            Direction::DownLeftNarrow => {
+                x -= 1;
+                y += 2;
+            }
+            Direction::DownLeftWide => {
+                x -= 2;
+                y += 1;
+            }
             Direction::None => (),
         }
         if in_bounds(x) && in_bounds(y) {
@@ -404,6 +445,7 @@ fn player_input(
         let mov = match piece {
             Piece::Rook => rook_move(kp),
             Piece::Bishop => bishop_move(kp),
+            Piece::Knight => knight_move(kp),
             _ => panic!("Other pieces not implemented"),
         };
         if let Some(dir) = mov {
@@ -443,6 +485,29 @@ fn bishop_move(kp: impl Fn(KeyCode) -> bool) -> Option<Direction> {
         (false, true, false, true) => Some(Direction::DownRight),
         (false, true, true, false) => Some(Direction::DownLeft),
         _ => None,
+    }
+}
+
+fn knight_move(kp: impl Fn(KeyCode) -> bool) -> Option<Direction> {
+    use KeyCode::{KeyU, KeyI, KeyO, KeyP, KeyJ, KeyK, KeyL, Semicolon};
+    if kp(KeyU) {
+        Some(Direction::UpLeftWide)
+    } else if kp(KeyI) {
+        Some(Direction::UpLeftNarrow)
+    } else if kp(KeyO) {
+        Some(Direction::UpRightNarrow)
+    } else if kp(KeyP) {
+        Some(Direction::UpRightWide)
+    } else if kp(KeyJ) {
+        Some(Direction::DownLeftWide)
+    } else if kp(KeyK) {
+        Some(Direction::DownLeftNarrow)
+    } else if kp(KeyL) {
+        Some(Direction::DownRightNarrow)
+    } else if kp(Semicolon) {
+        Some(Direction::DownRightWide)
+    } else {
+        None
     }
 }
 
