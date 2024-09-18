@@ -151,7 +151,7 @@ struct Spawner {
 #[derive(Bundle)]
 struct PieceBundle<T: Component> {
     sprite: SpriteBundle,
-    opp: T,
+    mob: T,
     piece: Piece,
 }
 
@@ -207,11 +207,11 @@ enum Direction {
 }
 
 // to-do: organize
-trait NewPiece {
+trait NewMob {
     fn new(move_time: f32) -> Self;
 }
 
-impl NewPiece for Opponent {
+impl NewMob for Opponent {
     fn new(move_time: f32) -> Self {
         Self {
             timer: Timer::from_seconds(move_time, TimerMode::Repeating),
@@ -219,7 +219,7 @@ impl NewPiece for Opponent {
     }
 }
 
-impl NewPiece for Player {
+impl NewMob for Player {
     fn new(move_time: f32) -> Self {
         Self {
             timer_dur: move_time,
@@ -229,7 +229,7 @@ impl NewPiece for Player {
     }
 }
 
-impl<T: Component + NewPiece> PieceBundle<T> {
+impl<T: Component + NewMob> PieceBundle<T> {
     fn new(texture: Handle<Image>, coords: Vec3, piece: Piece, move_time: f32) -> Self {
         Self {
             sprite: SpriteBundle {
@@ -241,7 +241,7 @@ impl<T: Component + NewPiece> PieceBundle<T> {
                 },
                 ..default()
             },
-            opp: T::new(move_time),
+            mob: T::new(move_time),
             piece,
         }
     }
