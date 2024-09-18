@@ -64,6 +64,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut sprite_map: HashMap<PieceSide, Handle<Image>> = HashMap::new();
     let piece_sprites = [
         (Piece::Rook, Side::Black, "chessPieces/rookBlack.png"),
+        (Piece::Bishop, Side::Black, "chessPieces/bishopBlack.png"),
         (Piece::Rook, Side::White, "chessPieces/rookWhite.png"),
         (Piece::Bishop, Side::White, "chessPieces/bishopWhite.png"),
         (Piece::Queen, Side::White, "chessPieces/queenWhite.png"),
@@ -72,9 +73,10 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         sprite_map.insert((sprite.0, sprite.1), asset_server.load(sprite.2));
     }
     let piece_sprites = PieceSprites { map: sprite_map };
+    let player_piece = Piece::Bishop;
     let player_id = commands
         .spawn(
-            PlayerPiece::new(piece_sprites.get(Piece::Rook, PLAYER_SIDE), start_vec, Piece::Bishop, PLAYER_MOVE_SPEED)
+            PlayerPiece::new(piece_sprites.get(player_piece, PLAYER_SIDE), start_vec, player_piece, PLAYER_MOVE_SPEED)
         ).id();
     let mut board = Board::default();
     board.place_piece(start_x, start_y, TileType::Player(player_id));
