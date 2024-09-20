@@ -74,7 +74,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         sprite_map.insert((sprite.0, sprite.1), asset_server.load(sprite.2));
     }
     let piece_sprites = PieceSprites { map: sprite_map };
-    let player_piece = Piece::Knight;
+    let player_piece = Piece::Rook;
     let player_id = commands
         .spawn(
             PlayerPiece::new(piece_sprites.get(player_piece, PLAYER_SIDE), start_vec, player_piece, PLAYER_MOVE_SPEED)
@@ -95,6 +95,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
             timer: Timer::from_seconds(0.0, TimerMode::Once),
             cur_duration: MAX_SPAWN_DUR,
             cur_piece_speed: MAX_OPP_SPEED,
+            spawn_count: [0; 8],
         },
     ));
     commands.insert_resource(piece_sprites);
@@ -149,6 +150,7 @@ struct Spawner {
     timer: Timer,
     cur_duration: f32,
     cur_piece_speed: f32,
+    spawn_count: [u32; N_TILES],
 }
 
 #[derive(Bundle)]
@@ -215,6 +217,25 @@ enum Direction {
     DownLeftNarrow,
     DownLeftWide,
     None,
+}
+
+impl Spawner {
+    fn spawn_chance_array(&self, accessible: &Vec<usize>) -> [u32; N_TILES] {
+        // to-do: think about adding value to max to increase randomness
+        let max = self.spawn_count.iter().max().unwrap() + 1;
+        let mut spawn_chances = [0; N_TILES];
+        let mut prev = 0;
+        for (col, elem) in self.spawn_count.iter().enumerate().take(N_TILES) {
+            if !accessible.contains(&col) {
+                spawn_chances[col] = prev;
+            } else {
+                let chance = (max - *elem) + prev;
+                spawn_chances[col] = chance;
+                prev = chance;
+            }
+        }
+        spawn_chances
+    }
 }
 
 // to-do: organize
@@ -588,13 +609,21 @@ fn spawn_opp_pieces(
                         is_player = Some((elem, x));
                         spawn_locations.push(elem);
                     }
-                    _ => spawn_locations.push(elem),
+                    TileType::Empty => spawn_locations.push(elem),
                 }
             }
-            rng.shuffle(&mut spawn_locations);
-            let target = spawn_locations.pop();
-            if let Some(col) = target {
-                let target_coords = Board::coord_to_vec(col, 0);
+            if spawn_locations.len() > 0 {
+                let spawn_chances = spawner.spawn_chance_array(&spawn_locations);
+                let rand_num = rng.generate_range(spawn_chances[spawn_locations[0]]..=spawn_chances[N_TILES-1]);
+                let mut spawn_loc = 0;
+                for (col, elem) in spawn_chances.iter().enumerate().take(N_TILES) {
+                    if *elem >= rand_num {
+                        spawn_loc = col;
+                        break;
+                    }
+                }
+                spawner.spawn_count[spawn_loc] += 1;
+                let target_coords = Board::coord_to_vec(spawn_loc, 0);
                 let cur_speed = spawner.cur_piece_speed;
                 let offsets = vec![0.0, 0.3, 0.6, 0.9];
                 let mut possible_speeds = vec![];
@@ -619,9 +648,9 @@ fn spawn_opp_pieces(
                         speed,
                     ))
                     .id();
-                board.board[0][col] = TileType::Opponent(new_piece);
+                board.board[0][spawn_loc] = TileType::Opponent(new_piece);
                 if let Some((player_col, player_id)) = is_player {
-                    if player_col == col {
+                    if player_col == spawn_loc {
                         move_writer.send(Move {
                             id: player_id,
                             mov: MoveResult::Delete,
